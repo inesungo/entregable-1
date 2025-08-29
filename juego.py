@@ -1,5 +1,10 @@
 import random
 import time
+from rich.panel import Panel
+from rich.columns import Columns
+from rich.table import Table
+from rich.console import Console
+from rich.text import Text
 from functools import reduce
 from typing import Dict, List, Iterator, Tuple
 from colorama import init as colorama_init, Fore, Style
@@ -30,19 +35,29 @@ def generar_tablero() -> Dict[int, Dict[str, int]]:
       mon: +2, +1, +1, -1, -1
     """
     tablero: Dict[int, Dict[str, int]] = {}
-    r = lambda: random.randint(1, NUM_CASILLAS - 1)  # 30 es meta, no se usa
+    posiciones_usadas = set()
+    def r_unico():
+        while True:
+            pos = random.randint(1, NUM_CASILLAS - 1)
+            if pos not in posiciones_usadas:
+                posiciones_usadas.add(pos)
+                return pos
 
+    # Verde: premios de movimiento
     for mov in (1, 2, 3):
-        tablero = agregar_efecto(tablero, r(), {"mov": mov})
+        tablero = agregar_efecto(tablero, r_unico(), {"mov": mov})
 
-    tablero = agregar_efecto(tablero, r(), {"mov": -999})  # volver al inicio
-    tablero = agregar_efecto(tablero, r(), {"mov": -5})
+    # Rojo: castigos de movimiento
+    tablero = agregar_efecto(tablero, r_unico(), {"mov": -999})  # volver al inicio
+    tablero = agregar_efecto(tablero, r_unico(), {"mov": -5})
 
+    # Cian: premios de monedas
     for mon in (2, 1, 1):
-        tablero = agregar_efecto(tablero, r(), {"mon": mon})
+        tablero = agregar_efecto(tablero, r_unico(), {"mon": mon})
 
-    tablero = agregar_efecto(tablero, r(), {"mon": -1})
-    tablero = agregar_efecto(tablero, r(), {"mon": -1})
+    # Amarillo: castigos de monedas
+    tablero = agregar_efecto(tablero, r_unico(), {"mon": -1})
+    tablero = agregar_efecto(tablero, r_unico(), {"mon": -1})
 
     return tablero
 
@@ -58,8 +73,56 @@ def crear_jugador(nombre: str) -> Dict:
 def log_turno(func):
     def wrapper(*args, **kwargs):
         antes = args[0]  # jugador original
+        dado = args[1]
+        tablero = kwargs.get('tablero', None) or args[2]  # tablero es el tercer argumento
+        # Paso 1: movimiento inicial
+        pos_inicial = antes["pos"] + dado
+        if pos_inicial > NUM_CASILLAS:
+            pos_inicial = NUM_CASILLAS
+        efectos_inicial = tablero.get(pos_inicial, {}) if tablero else {}
+        mensajes_inicial = []
+        if not efectos_inicial:
+            print(f"La casilla {pos_inicial} no tiene efectos especiales.")
+        else:
+            if "mov" in efectos_inicial:
+                mov = efectos_inicial["mov"]
+                if mov == -999:
+                    mensajes_inicial.append("Vuelve al inicio")
+                elif mov < 0:
+                    mensajes_inicial.append(f"Retrocede {abs(mov)} casillas")
+                else:
+                    mensajes_inicial.append(f"Avanza {mov} casillas")
+            if "mon" in efectos_inicial:
+                mon = efectos_inicial["mon"]
+                if mon < 0:
+                    mensajes_inicial.append(f"Pierde {abs(mon)} moneda(s)")
+                else:
+                    mensajes_inicial.append(f"Gana {mon} moneda(s)")
+            print(f"La casilla {pos_inicial} tiene efectos: {', '.join(mensajes_inicial)}")
+
         resultado = func(*args, **kwargs)
-        print(f"[LOG] {antes['nombre']}: pos {antes['pos']}→{resultado['pos']} | mon {antes['mon']}→{resultado['mon']}")
+        # Paso 2: movimiento extra (si lo hubo)
+        pos_final = resultado["pos"]
+        if pos_final != pos_inicial:
+            print(f"Por efecto de la casilla, ahora está en la casilla {pos_final}.")
+            efectos_final = tablero.get(pos_final, {}) if tablero else {}
+            mensajes_final = []
+            if efectos_final and pos_final != pos_inicial:
+                if "mov" in efectos_final:
+                    mov = efectos_final["mov"]
+                    if mov == -999:
+                        mensajes_final.append("Vuelve al inicio")
+                    elif mov < 0:
+                        mensajes_final.append(f"Retrocede {abs(mov)} casillas")
+                    else:
+                        mensajes_final.append(f"Avanza {mov} casillas")
+                if "mon" in efectos_final:
+                    mon = efectos_final["mon"]
+                    if mon < 0:
+                        mensajes_final.append(f"Pierde {abs(mon)} moneda(s)")
+                    else:
+                        mensajes_final.append(f"Gana {mon} moneda(s)")
+                print(f"La casilla {pos_final} tiene efectos: {', '.join(mensajes_final)}")
         return resultado
     return wrapper
 
@@ -96,7 +159,11 @@ def aplicar_efectos(jugador: Dict, tablero: Dict) -> Dict:
         if mov == -999:
             nuevo["pos"] = 0
         else:
-            nuevo["pos"] = max(0, min(NUM_CASILLAS, nuevo["pos"] + mov))
+            nueva_pos = nuevo["pos"] + mov
+            if mov < 0:
+                nuevo["pos"] = max(0, nueva_pos)
+            else:
+                nuevo["pos"] = min(NUM_CASILLAS, nueva_pos)
 
     # Monedas (no bajar de 0)
     if "mon" in efectos:
@@ -131,28 +198,59 @@ def color_de_casilla(tablero: Dict[int, Dict[str, int]], pos: int) -> str:
     return Style.RESET_ALL
 
 def token_casilla(pos: int, jpos: Dict[str, int], color: str) -> str:
-    j1 = "J1" if jpos["J1"] == pos else ""
-    j2 = "J2" if jpos["J2"] == pos else ""
+    # Colores distintos para cada jugador
+    j1 = Fore.MAGENTA + "J1" + Style.RESET_ALL if jpos["J1"] == pos else ""
+    j2 = Fore.BLUE + "J2" + Style.RESET_ALL if jpos["J2"] == pos else ""
     contenido = (j1 + ("&" if j1 and j2 else "") + j2) if (j1 or j2) else str(pos)
     contenido = contenido.center(4)
     return f"{color}[{contenido}]{Style.RESET_ALL}"
 
 def mostrar_tablero(jugadores: List[Dict], tablero: Dict[int, Dict[str, int]]) -> None:
     jpos = {"J1": jugadores[0]["pos"], "J2": jugadores[1]["pos"]}
-    # comprensión de lista
-    fila = [token_casilla(pos, jpos, color_de_casilla(tablero, pos)) for pos in range(1, NUM_CASILLAS + 1)]
-    print(" ".join(fila))
-    print()
-    print(f"{Fore.RED}Rojo{Style.RESET_ALL}=Castigo mov   "
-          f"{Fore.GREEN}Verde{Style.RESET_ALL}=Premio mov   "
-          f"{Fore.YELLOW}Amarillo{Style.RESET_ALL}=Castigo mon   "
-          f"{Fore.CYAN}Cian{Style.RESET_ALL}=Premio mon")
-    # reduce para total de monedas (demostrativo de uso funcional)
-    total_mon = reduce(lambda acc, j: acc + j["mon"], jugadores, 0)
-    print(f"J1={jugadores[0]['nombre']} pos={jugadores[0]['pos']} mon={jugadores[0]['mon']} | "
-          f"J2={jugadores[1]['nombre']} pos={jugadores[1]['pos']} mon={jugadores[1]['mon']} | "
-          f"Total monedas={total_mon}")
-    print("-" * 100)
+    console = Console()
+    casillas = []
+    for pos in range(0, NUM_CASILLAS + 1):
+        efectos = tablero.get(pos, {})
+        mov = efectos.get("mov", 0)
+        mon = efectos.get("mon", 0)
+        # Jugadores
+        if jpos["J1"] == pos and jpos["J2"] == pos:
+            contenido = f"J1&J2"
+            color = "magenta"
+        elif jpos["J1"] == pos:
+            contenido = "J1"
+            color = "magenta"
+        elif jpos["J2"] == pos:
+            contenido = "J2"
+            color = "blue"
+        else:
+            contenido = "Inicio" if pos == 0 else str(pos)
+            color = "white"
+        # Efectos
+        border = "white"
+        if mov == -999 or mov < 0:
+            border = "red"
+        elif mov > 0:
+            border = "green"
+        elif mon < 0:
+            border = "yellow"
+        elif mon > 0:
+            border = "cyan"
+        panel = Panel(contenido, border_style=border, style=color, width=7)
+        casillas.append(panel)
+    console.print(Columns(casillas))
+    # Leyenda
+    legend = (
+        f"[red]Rojo[/][white]=Castigo mov   "
+        f"[green]Verde[/][white]=Premio mov   "
+        f"[yellow]Amarillo[/][white]=Castigo mon   "
+        f"[cyan]Cian[/][white]=Premio mon"
+    )
+    console.print(legend)
+    # Estado jugadores
+    console.print(f"[magenta]J1={jugadores[0]['nombre']}[/] - Posición: {jugadores[0]['pos']} - Monedas: {jugadores[0]['mon']}")
+    console.print(f"[blue]J2={jugadores[1]['nombre']}[/] - Posición: {jugadores[1]['pos']} - Monedas: {jugadores[1]['mon']}")
+    console.print("=" * 100)
 
 
 # Reglas de fin
@@ -180,6 +278,7 @@ def jugar_rec(jugadores: List[Dict], turno: int, tablero: Dict[int, Dict[str, in
     jugadores_nuevos = [nuevo if i == idx else jugadores[i] for i in range(2)]
 
     mostrar_tablero(jugadores_nuevos, tablero)
+    mostrar_efecto_casilla(nuevo, tablero)
 
     # condiciones de fin
     if hay_ganador(nuevo):
@@ -194,6 +293,32 @@ def jugar_rec(jugadores: List[Dict], turno: int, tablero: Dict[int, Dict[str, in
 
     # Recursión al siguiente turno
     return jugar_rec(jugadores_nuevos, turno + 1, tablero, modo, dados)
+# Reglas de fin
+def mostrar_efecto_casilla(jugador: Dict, tablero: Dict[int, Dict[str, int]]) -> None:
+    pos = jugador["pos"]
+    efectos = tablero.get(pos, {})
+    if not efectos:
+        print(f"La casilla {pos} no tiene efectos especiales.")
+        return
+    mensajes = []
+    if "mov" in efectos:
+        if efectos["mov"] == -999:
+            mensajes.append(f"{Fore.RED}Vuelve al inicio{Style.RESET_ALL}")
+        elif efectos["mov"] < 0:
+            mensajes.append(f"{Fore.RED}Retrocede {abs(efectos['mov'])} casillas{Style.RESET_ALL}")
+        else:
+            mensajes.append(f"{Fore.GREEN}Avanza {efectos['mov']} casillas{Style.RESET_ALL}")
+    if "mon" in efectos:
+        if efectos["mon"] < 0:
+            mensajes.append(f"{Fore.YELLOW}Pierde {abs(efectos['mon'])} moneda(s){Style.RESET_ALL}")
+        else:
+            mensajes.append(f"{Fore.CYAN}Gana {efectos['mon']} moneda(s){Style.RESET_ALL}")
+    print(f"Efectos en la casilla {pos}: " + ", ".join(mensajes))
+
+def mostrar_resumen_turno(jugadores: List[Dict]) -> None:
+    print(f"{Fore.MAGENTA}J1: {jugadores[0]['nombre']} - Posición: {jugadores[0]['pos']} - Monedas: {jugadores[0]['mon']}{Style.RESET_ALL}")
+    print(f"{Fore.BLUE}J2: {jugadores[1]['nombre']} - Posición: {jugadores[1]['pos']} - Monedas: {jugadores[1]['mon']}{Style.RESET_ALL}")
+    print("-" * 50)
 
 
 # Setup y entrada
