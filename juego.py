@@ -33,8 +33,9 @@ def generar_tablero() -> Dict[int, Dict[str, int]]:
     Genera posiciones random de casillas especiales:
       mov: +1, +2, +3, -5, -999 (volver a inicio)
       mon: +2, +1, +1, -1, -1
+    
+    Usa comprensión de diccionario para generar los efectos iniciales.
     """
-    tablero: Dict[int, Dict[str, int]] = {}
     posiciones_usadas = set()
     def r_unico():
         while True:
@@ -42,22 +43,20 @@ def generar_tablero() -> Dict[int, Dict[str, int]]:
             if pos not in posiciones_usadas:
                 posiciones_usadas.add(pos)
                 return pos
-
-    # Verde: premios de movimiento
-    for mov in (1, 2, 3):
-        tablero = agregar_efecto(tablero, r_unico(), {"mov": mov})
-
-    # Rojo: castigos de movimiento
-    tablero = agregar_efecto(tablero, r_unico(), {"mov": -999})  # volver al inicio
-    tablero = agregar_efecto(tablero, r_unico(), {"mov": -5})
-
-    # Cian: premios de monedas
-    for mon in (2, 1, 1):
-        tablero = agregar_efecto(tablero, r_unico(), {"mon": mon})
-
-    # Amarillo: castigos de monedas
-    tablero = agregar_efecto(tablero, r_unico(), {"mon": -1})
-    tablero = agregar_efecto(tablero, r_unico(), {"mon": -1})
+    
+    # Definir todos los efectos usando comprensión de diccionario
+    efectos = [
+        {"mov": mov} for mov in (1, 2, 3)  # Verde: premios de movimiento
+    ] + [
+        {"mov": -999}, {"mov": -5}  # Rojo: castigos de movimiento
+    ] + [
+        {"mon": mon} for mon in (2, 1, 1)  # Cian: premios de monedas
+    ] + [
+        {"mon": -1} for _ in range(2)  # Amarillo: castigos de monedas
+    ]
+    
+    # Generar el tablero usando reduce para combinar todos los efectos
+    return reduce(lambda tab, ef: agregar_efecto(tab, r_unico(), ef), efectos, {})
 
     return tablero
 
