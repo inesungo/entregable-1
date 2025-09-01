@@ -12,16 +12,22 @@ from colorama import init as colorama_init, Fore, Style
 colorama_init(autoreset=True)
 
 
-# Constantes
-NUM_CASILLAS = 30
-MONEDAS_INICIALES = 2
+
+# =============================
+#  CONSTANTES DEL JUEGO
+# =============================
+NUM_CASILLAS = 30  # Cantidad de casillas del tablero
+MONEDAS_INICIALES = 2  # Monedas con las que arranca cada jugador
 
 
-# Utilidades funcionales
+
+# =============================
+#  FUNCIONES DE TABLERO Y EFECTOS
+# =============================
 def agregar_efecto(tablero: Dict[int, Dict[str, int]], pos: int, efecto: Dict[str, int]) -> Dict[int, Dict[str, int]]:
     """
-    Combina efectos si coinciden en la misma casilla (sin mutar el original).
-    - Si ya hay mov/mon, suma.
+    Agrega o combina efectos en una casilla del tablero.
+    Si ya hay efectos, los suma (sin mutar el original).
     """
     actual = tablero.get(pos, {})
     combinado = {**actual, **{k: actual.get(k, 0) + v for k, v in efecto.items()}}
@@ -30,46 +36,55 @@ def agregar_efecto(tablero: Dict[int, Dict[str, int]], pos: int, efecto: Dict[st
 
 def generar_tablero() -> Dict[int, Dict[str, int]]:
     """
-    Genera posiciones random de casillas especiales:
-      mov: +1, +2, +3, -5, -999 (volver a inicio)
-      mon: +2, +1, +1, -1, -1
-    
-    Usa comprensión de diccionario para generar los efectos iniciales.
+    Genera el tablero con posiciones aleatorias para casillas especiales:
+      - mov: +1, +2, +3, -5, -999 (volver a inicio)
+      - mon: +2, +1, +1, -1, -1
     """
     posiciones_usadas = set()
     def r_unico():
+        # Elige una posición única para cada efecto especial
         while True:
             pos = random.randint(1, NUM_CASILLAS - 1)
             if pos not in posiciones_usadas:
                 posiciones_usadas.add(pos)
                 return pos
-    
-    # Definir todos los efectos usando comprensión de diccionario
+
+    # Definir todos los efectos
     efectos = [
-        {"mov": mov} for mov in (1, 2, 3)  # Verde: premios de movimiento
+        {"mov": mov} for mov in (1, 2, 3)
     ] + [
-        {"mov": -999}, {"mov": -5}  # Rojo: castigos de movimiento
+        {"mov": -999}, {"mov": -5}
     ] + [
-        {"mon": mon} for mon in (2, 1, 1)  # Cian: premios de monedas
+        {"mon": mon} for mon in (2, 1, 1)
     ] + [
-        {"mon": -1} for _ in range(2)  # Amarillo: castigos de monedas
+        {"mon": -1} for _ in range(2)
     ]
-    
+
     # Generar el tablero usando reduce para combinar todos los efectos
     return reduce(lambda tab, ef: agregar_efecto(tab, r_unico(), ef), efectos, {})
 
-    return tablero
 
 
-# Jugadores
+# =============================
+#  JUGADORES
+# =============================
 def crear_jugador(nombre: str) -> Dict:
-    # dict inmutable por copia cuando se actualiza
+    """
+    Crea un jugador con nombre, posición inicial y monedas iniciales.
+    """
     return {"nombre": nombre, "pos": 0, "mon": MONEDAS_INICIALES}
 
 
-# Decorador de logging
-
+    
+# =============================
+#  DECORADOR DE LOGGING DE TURNOS
+# =============================
 def log_turno(func):
+    """
+    Decorador que imprime información detallada sobre el turno:
+    - Efectos de la casilla antes y después del movimiento.
+    - Ayuda a seguir el flujo del juego paso a paso.
+    """
     def wrapper(*args, **kwargs):
         antes = args[0]  # jugador original
         dado = args[1]
@@ -126,31 +141,47 @@ def log_turno(func):
     return wrapper
 
 
-# Dado (generador y helper)
+
+# =============================
+#  DADO Y GENERADOR DE TIRADAS
+# =============================
 def tirar_dado() -> int:
+    """Devuelve un número aleatorio entre 1 y 6 (simula un dado)."""
     return random.randint(1, 6)
 
 def generador_dados() -> Iterator[int]:
-    """Generador infinito de tiradas de dado (cumple con 'yield')."""
+    """
+    Generador infinito de tiradas de dado.
+    Permite simular el juego sin intervención manual.
+    """
     while True:
         yield tirar_dado()
 
 
-# Lógica de movimiento
+
+# =============================
+#  LÓGICA DE MOVIMIENTO Y EFECTOS
+# =============================
 def mover(jugador: Dict, dado: int) -> Dict:
+    """
+    Mueve al jugador la cantidad de casillas indicada por el dado.
+    No permite pasar la última casilla.
+    """
     nueva_pos = jugador["pos"] + dado
     if nueva_pos > NUM_CASILLAS:
         nueva_pos = NUM_CASILLAS
     return {**jugador, "pos": nueva_pos}
 
 def aplicar_efectos(jugador: Dict, tablero: Dict) -> Dict:
+    """
+    Aplica los efectos de la casilla actual al jugador (movimiento extra o monedas).
+    """
     pos = jugador["pos"]
     if pos not in tablero:
         return jugador
 
     efectos = tablero[pos]
-    # empezar por copia para inmutabilidad
-    nuevo = {**jugador}
+    nuevo = {**jugador}  # Copia para inmutabilidad
 
     # Movimiento extra
     if "mov" in efectos:
@@ -173,15 +204,19 @@ def aplicar_efectos(jugador: Dict, tablero: Dict) -> Dict:
 @log_turno
 def aplicar_movimiento(jugador: Dict, dado: int, tablero: Dict) -> Dict:
     """
-    Función pura por composición: mover -> aplicar_efectos
+    Aplica el movimiento y luego los efectos de la casilla (función pura por composición).
     """
     return aplicar_efectos(mover(jugador, dado), tablero)
 
 
-# Visualización del tablero
+
+# =============================
+#  VISUALIZACIÓN DEL TABLERO Y ESTADO
+# =============================
 def color_de_casilla(tablero: Dict[int, Dict[str, int]], pos: int) -> str:
     """
-    Prioridad de color: mov castigo (rojo) > mov premio (verde) > mon castigo (amarillo) > mon premio (cian)
+    Devuelve el color de la casilla según el efecto:
+    Prioridad: mov castigo (rojo) > mov premio (verde) > mon castigo (amarillo) > mon premio (cian)
     """
     efectos = tablero.get(pos, {})
     mov = efectos.get("mov", 0)
@@ -197,7 +232,9 @@ def color_de_casilla(tablero: Dict[int, Dict[str, int]], pos: int) -> str:
     return Style.RESET_ALL
 
 def token_casilla(pos: int, jpos: Dict[str, int], color: str) -> str:
-    # Colores distintos para cada jugador
+    """
+    Devuelve el string coloreado para mostrar la casilla y los jugadores.
+    """
     j1 = Fore.MAGENTA + "J1" + Style.RESET_ALL if jpos["J1"] == pos else ""
     j2 = Fore.BLUE + "J2" + Style.RESET_ALL if jpos["J2"] == pos else ""
     contenido = (j1 + ("&" if j1 and j2 else "") + j2) if (j1 or j2) else str(pos)
@@ -205,6 +242,10 @@ def token_casilla(pos: int, jpos: Dict[str, int], color: str) -> str:
     return f"{color}[{contenido}]{Style.RESET_ALL}"
 
 def mostrar_tablero(jugadores: List[Dict], tablero: Dict[int, Dict[str, int]]) -> None:
+    """
+    Muestra el tablero con los jugadores y los efectos de cada casilla.
+    Utiliza la librería rich para una visualización atractiva.
+    """
     jpos = {"J1": jugadores[0]["pos"], "J2": jugadores[1]["pos"]}
     console = Console()
     casillas = []
@@ -252,16 +293,31 @@ def mostrar_tablero(jugadores: List[Dict], tablero: Dict[int, Dict[str, int]]) -
     console.print("=" * 100)
 
 
-# Reglas de fin
+
+# =============================
+#  REGLAS DE FIN DE JUEGO
+# =============================
 def hay_ganador(j: Dict) -> bool:
+    """Devuelve True si el jugador llegó al final y tiene monedas."""
     return j["pos"] >= NUM_CASILLAS and j["mon"] > 0
 
 def perdio_por_monedas(j: Dict) -> bool:
+    """Devuelve True si el jugador se quedó sin monedas."""
     return j["mon"] <= 0
 
-# Bucle recursivo del juego
+
+# =============================
+#  BUCLE PRINCIPAL DEL JUEGO Y AYUDAS DE VISUALIZACIÓN
+# =============================
 def jugar_rec(jugadores: List[Dict], turno: int, tablero: Dict[int, Dict[str, int]],
               modo: str, dados: Iterator[int]) -> None:
+    """
+    Bucle recursivo que gestiona el turno de cada jugador.
+    - Pide input si es modo interactivo.
+    - Aplica el movimiento y efectos.
+    - Muestra el tablero y efectos.
+    - Verifica condiciones de fin.
+    """
     idx = turno % 2
     jugador = jugadores[idx]
 
@@ -292,8 +348,11 @@ def jugar_rec(jugadores: List[Dict], turno: int, tablero: Dict[int, Dict[str, in
 
     # Recursión al siguiente turno
     return jugar_rec(jugadores_nuevos, turno + 1, tablero, modo, dados)
-# Reglas de fin
+
 def mostrar_efecto_casilla(jugador: Dict, tablero: Dict[int, Dict[str, int]]) -> None:
+    """
+    Muestra los efectos de la casilla actual del jugador.
+    """
     pos = jugador["pos"]
     efectos = tablero.get(pos, {})
     if not efectos:
@@ -315,14 +374,22 @@ def mostrar_efecto_casilla(jugador: Dict, tablero: Dict[int, Dict[str, int]]) ->
     print(f"Efectos en la casilla {pos}: " + ", ".join(mensajes))
 
 def mostrar_resumen_turno(jugadores: List[Dict]) -> None:
+    """
+    Muestra un resumen del estado de ambos jugadores.
+    """
     print(f"{Fore.MAGENTA}J1: {jugadores[0]['nombre']} - Posición: {jugadores[0]['pos']} - Monedas: {jugadores[0]['mon']}{Style.RESET_ALL}")
     print(f"{Fore.BLUE}J2: {jugadores[1]['nombre']} - Posición: {jugadores[1]['pos']} - Monedas: {jugadores[1]['mon']}{Style.RESET_ALL}")
     print("-" * 50)
 
 
-# Setup y entrada
+
+# =============================
+#  SETUP Y ENTRADA PRINCIPAL
+# =============================
 def jugar(modo: str):
-    # nombres en interactivo
+    """
+    Inicializa el juego, pide nombres si es interactivo, genera tablero y jugadores.
+    """
     if modo == "interactivo":
         n1 = input("Nombre del Jugador 1: ").strip() or "Jugador 1"
         n2 = input("Nombre del Jugador 2: ").strip() or "Jugador 2"
@@ -340,7 +407,11 @@ def jugar(modo: str):
     # arranca turno 0 (J1)
     jugar_rec(jugadores, 0, tablero, modo, dados)
 
+# =============================
+#  PUNTO DE ENTRADA DEL SCRIPT
+# =============================
 if __name__ == "__main__":
+    # Permite elegir modo de juego: simulación automática o modo interactivo
     modo = input("Seleccione modo (simulacion/interactivo): ").strip().lower()
     if modo not in {"simulacion", "interactivo"}:
         print("Modo inválido. Usando 'simulacion' por defecto.")
