@@ -491,3 +491,5 @@ if __name__ == "__main__":
         print("Modo inválido. Usando 'simulacion' por defecto.")
         modo = "simulacion"
     jugar(modo)
+
+
