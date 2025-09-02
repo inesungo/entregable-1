@@ -6,24 +6,97 @@ from rich.table import Table
 from rich.console import Console
 from rich.text import Text
 from functools import reduce
-from typing import Dict, List, Iterator, Tuple
+from typing import Dict, List, Iterator, Tuple, TypedDict
 from colorama import init as colorama_init, Fore, Style
 
 colorama_init(autoreset=True)
 
-
-
-# =============================
 #  CONSTANTES DEL JUEGO
-# =============================
 NUM_CASILLAS = 30  # Cantidad de casillas del tablero
 MONEDAS_INICIALES = 2  # Monedas con las que arranca cada jugador
 
 
+#  HISTÓRICO DE PARTIDA
+class HistEntry(TypedDict, total=False):
+    turno: int
+    jugador: str
+    dado: int
+    pos_antes: int
+    mon_antes: int
+    pos_cae: int           # pos tras el dado (antes de efectos)
+    efectos: dict          # efectos de la casilla donde cae
+    pos_despues: int
+    mon_despues: int
+    delta_pos: int
+    delta_mon: int
 
-# =============================
+def imprimir_historial(historial: List[HistEntry]) -> None:
+    print("\n HISTÓRICO DE LA PARTIDA")
+    print("-" * 100)
+    header = f"{'T':>2} | {'Jugador':<12} | {'Dado':>4} | {'Pos->Cae':>9} | {'Efectos':<20} | {'Pos/Mon':>12} | {'Δpos':>4} | {'Δmon':>5}"
+    print(header)
+    print("-" * 100)
+    for h in historial:
+        efectos_str = ""
+        if h.get("efectos"):
+            parts = []
+            mov = h["efectos"].get("mov")
+            mon = h["efectos"].get("mon")
+            if mov is not None:
+                parts.append(f"mov={mov}")
+            if mon is not None:
+                parts.append(f"mon={mon}")
+            efectos_str = ",".join(parts)
+        row = (
+            f"{h['turno']:>2} | "
+            f"{h['jugador']:<12} | "
+            f"{h['dado']:>4} | "
+            f"{h['pos_antes']:>2}->{h['pos_cae']:<2}  | "
+            f"{efectos_str:<20} | "
+            f"{h['pos_despues']:>2}/{h['mon_despues']:<3}     | "
+            f"{h['delta_pos']:>4} | "
+            f"{h['delta_mon']:>5}"
+        )
+        print(row)
+    print("-" * 100)
+
+def guardar_historial_archivo(historial: List[HistEntry], resultado: str) -> str:
+    ruta = "historico_partida.txt"
+    with open(ruta, "w", encoding="utf-8") as f:
+        f.write("HISTÓRICO DE LA PARTIDA\n")
+        f.write("=" * 100 + "\n")
+        f.write(f"Resultado: {resultado}\n\n")
+        header = f"{'T':>2} | {'Jugador':<12} | {'Dado':>4} | {'Pos->Cae':>9} | {'Efectos':<20} | {'Pos/Mon':>12} | {'Δpos':>4} | {'Δmon':>5}\n"
+        f.write(header)
+        f.write("-" * 100 + "\n")
+        for h in historial:
+            efectos_str = ""
+            if h.get("efectos"):
+                parts = []
+                mov = h["efectos"].get("mov")
+                mon = h["efectos"].get("mon")
+                if mov is not None:
+                    parts.append(f"mov={mov}")
+                if mon is not None:
+                    parts.append(f"mon={mon}")
+                efectos_str = ",".join(parts)
+            row = (
+                f"{h['turno']:>2} | "
+                f"{h['jugador']:<12} | "
+                f"{h['dado']:>4} | "
+                f"{h['pos_antes']:>2}->{h['pos_cae']:<2}  | "
+                f"{efectos_str:<20} | "
+                f"{h['pos_despues']:>2}/{h['mon_despues']:<3}     | "
+                f"{h['delta_pos']:>4} | "
+                f"{h['delta_mon']:>5}\n"
+            )
+            f.write(row)
+        f.write("-" * 100 + "\n")
+    return ruta
+
+
 #  FUNCIONES DE TABLERO Y EFECTOS
-# =============================
+
 def agregar_efecto(tablero: Dict[int, Dict[str, int]], pos: int, efecto: Dict[str, int]) -> Dict[int, Dict[str, int]]:
     """
     Agrega o combina efectos en una casilla del tablero.
@@ -50,35 +123,26 @@ def generar_tablero() -> Dict[int, Dict[str, int]]:
                 return pos
 
     # Definir todos los efectos
-    efectos = [
-        {"mov": mov} for mov in (1, 2, 3)
-    ] + [
-        {"mov": -999}, {"mov": -5}
-    ] + [
-        {"mon": mon} for mon in (2, 1, 1)
-    ] + [
-        {"mon": -1} for _ in range(2)
-    ]
+    efectos = (
+        [{"mov": mov} for mov in (1, 2, 3)]
+        + [{"mov": -999}, {"mov": -5}]
+        + [{"mon": mon} for mon in (2, 1, 1)]
+        + [{"mon": -1} for _ in range(2)]
+    )
 
     # Generar el tablero usando reduce para combinar todos los efectos
     return reduce(lambda tab, ef: agregar_efecto(tab, r_unico(), ef), efectos, {})
 
 
-
-# =============================
 #  JUGADORES
-# =============================
+
 def crear_jugador(nombre: str) -> Dict:
     """
     Crea un jugador con nombre, posición inicial y monedas iniciales.
     """
     return {"nombre": nombre, "pos": 0, "mon": MONEDAS_INICIALES}
 
-
-    
-# =============================
 #  DECORADOR DE LOGGING DE TURNOS
-# =============================
 def log_turno(func):
     """
     Decorador que imprime información detallada sobre el turno:
@@ -140,11 +204,7 @@ def log_turno(func):
         return resultado
     return wrapper
 
-
-
-# =============================
 #  DADO Y GENERADOR DE TIRADAS
-# =============================
 def tirar_dado() -> int:
     """Devuelve un número aleatorio entre 1 y 6 (simula un dado)."""
     return random.randint(1, 6)
@@ -157,11 +217,7 @@ def generador_dados() -> Iterator[int]:
     while True:
         yield tirar_dado()
 
-
-
-# =============================
 #  LÓGICA DE MOVIMIENTO Y EFECTOS
-# =============================
 def mover(jugador: Dict, dado: int) -> Dict:
     """
     Mueve al jugador la cantidad de casillas indicada por el dado.
@@ -208,11 +264,7 @@ def aplicar_movimiento(jugador: Dict, dado: int, tablero: Dict) -> Dict:
     """
     return aplicar_efectos(mover(jugador, dado), tablero)
 
-
-
-# =============================
 #  VISUALIZACIÓN DEL TABLERO Y ESTADO
-# =============================
 def color_de_casilla(tablero: Dict[int, Dict[str, int]], pos: int) -> str:
     """
     Devuelve el color de la casilla según el efecto:
@@ -244,7 +296,7 @@ def token_casilla(pos: int, jpos: Dict[str, int], color: str) -> str:
 def mostrar_tablero(jugadores: List[Dict], tablero: Dict[int, Dict[str, int]]) -> None:
     """
     Muestra el tablero con los jugadores y los efectos de cada casilla.
-    Utiliza la librería rich para una visualización atractiva.
+    Utiliza la librería rich para una mejor visualización.
     """
     jpos = {"J1": jugadores[0]["pos"], "J2": jugadores[1]["pos"]}
     console = Console()
@@ -292,11 +344,7 @@ def mostrar_tablero(jugadores: List[Dict], tablero: Dict[int, Dict[str, int]]) -
     console.print(f"[blue]J2={jugadores[1]['nombre']}[/] - Posición: {jugadores[1]['pos']} - Monedas: {jugadores[1]['mon']}")
     console.print("=" * 100)
 
-
-
-# =============================
 #  REGLAS DE FIN DE JUEGO
-# =============================
 def hay_ganador(j: Dict) -> bool:
     """Devuelve True si el jugador llegó al final y tiene monedas."""
     return j["pos"] >= NUM_CASILLAS and j["mon"] > 0
@@ -305,18 +353,16 @@ def perdio_por_monedas(j: Dict) -> bool:
     """Devuelve True si el jugador se quedó sin monedas."""
     return j["mon"] <= 0
 
-
-# =============================
 #  BUCLE PRINCIPAL DEL JUEGO Y AYUDAS DE VISUALIZACIÓN
-# =============================
 def jugar_rec(jugadores: List[Dict], turno: int, tablero: Dict[int, Dict[str, int]],
-              modo: str, dados: Iterator[int]) -> None:
+              modo: str, dados: Iterator[int], historial: List[HistEntry]) -> None:
     """
     Bucle recursivo que gestiona el turno de cada jugador.
     - Pide input si es modo interactivo.
     - Aplica el movimiento y efectos.
     - Muestra el tablero y efectos.
     - Verifica condiciones de fin.
+    - Registra histórico de cada jugada.
     """
     idx = turno % 2
     jugador = jugadores[idx]
@@ -328,26 +374,57 @@ def jugar_rec(jugadores: List[Dict], turno: int, tablero: Dict[int, Dict[str, in
     dado = next(dados)
     print(f"{jugador['nombre']} tiró un {dado}")
 
+    # Datos previos para histórico
+    pos_antes = jugador["pos"]
+    mon_antes = jugador["mon"]
+    pos_cae = min(NUM_CASILLAS, pos_antes + dado)
+    efectos_casilla = tablero.get(pos_cae, {})
+
+    # Aplicar movimiento/efectos
     nuevo = aplicar_movimiento(jugador, dado, tablero)
+
     # inmutabilidad: lista nueva con un solo elemento reemplazado
     jugadores_nuevos = [nuevo if i == idx else jugadores[i] for i in range(2)]
 
     mostrar_tablero(jugadores_nuevos, tablero)
     mostrar_efecto_casilla(nuevo, tablero)
 
+    # Registrar histórico
+    historial.append({
+        "turno": turno,
+        "jugador": jugador["nombre"],
+        "dado": dado,
+        "pos_antes": pos_antes,
+        "mon_antes": mon_antes,
+        "pos_cae": pos_cae,
+        "efectos": efectos_casilla.copy() if efectos_casilla else {},
+        "pos_despues": nuevo["pos"],
+        "mon_despues": nuevo["mon"],
+        "delta_pos": nuevo["pos"] - pos_antes,
+        "delta_mon": nuevo["mon"] - mon_antes,
+    })
+
     # condiciones de fin
     if hay_ganador(nuevo):
-        print(f"🏆 {nuevo['nombre']} ganó el juego!")
+        resultado = f"🏆 {nuevo['nombre']} ganó el juego!"
+        print(resultado)
+        imprimir_historial(historial)
+        ruta = guardar_historial_archivo(historial, resultado)
+        print(f"📁 Histórico guardado en: {ruta}")
         return
     if perdio_por_monedas(nuevo):
-        print(f"💀 {nuevo['nombre']} perdió por quedarse sin monedas.")
+        resultado = f"💀 {nuevo['nombre']} perdió por quedarse sin monedas."
+        print(resultado)
+        imprimir_historial(historial)
+        ruta = guardar_historial_archivo(historial, resultado)
+        print(f"📁 Histórico guardado en: {ruta}")
         return
 
     if modo == "simulacion":
         time.sleep(1)
 
     # Recursión al siguiente turno
-    return jugar_rec(jugadores_nuevos, turno + 1, tablero, modo, dados)
+    return jugar_rec(jugadores_nuevos, turno + 1, tablero, modo, dados, historial)
 
 def mostrar_efecto_casilla(jugador: Dict, tablero: Dict[int, Dict[str, int]]) -> None:
     """
@@ -381,11 +458,7 @@ def mostrar_resumen_turno(jugadores: List[Dict]) -> None:
     print(f"{Fore.BLUE}J2: {jugadores[1]['nombre']} - Posición: {jugadores[1]['pos']} - Monedas: {jugadores[1]['mon']}{Style.RESET_ALL}")
     print("-" * 50)
 
-
-
-# =============================
 #  SETUP Y ENTRADA PRINCIPAL
-# =============================
 def jugar(modo: str):
     """
     Inicializa el juego, pide nombres si es interactivo, genera tablero y jugadores.
@@ -404,12 +477,13 @@ def jugar(modo: str):
     # generador de dados
     dados = generador_dados()
 
-    # arranca turno 0 (J1)
-    jugar_rec(jugadores, 0, tablero, modo, dados)
+    # historial
+    historial: List[HistEntry] = []
 
-# =============================
+    # arranca turno 0 (J1)
+    jugar_rec(jugadores, 0, tablero, modo, dados, historial)
+
 #  PUNTO DE ENTRADA DEL SCRIPT
-# =============================
 if __name__ == "__main__":
     # Permite elegir modo de juego: simulación automática o modo interactivo
     modo = input("Seleccione modo (simulacion/interactivo): ").strip().lower()
